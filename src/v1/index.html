@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+      name="viewport"
+    />
+    <title>SUSA24 거리뷰</title>
+    <link href="./styles.css" rel="stylesheet" />
+    <script src="./app.js"></script>
+    <script
+      defer
+      onerror="handlePanoramaLoadError()"
+      src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=__NCP_MAPS_CLIENT_ID__&amp;submodules=panorama&amp;callback=initializePanorama"
+    ></script>
+  </head>
+  <body>
+    <main id="panorama" aria-label="NAVER 거리뷰"></main>
+    <p id="status" role="status">거리뷰를 불러오는 중입니다.</p>
+  </body>
+</html>

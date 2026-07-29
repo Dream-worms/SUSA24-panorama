@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>SUSA24 Panorama</title>
+    <script>
+      const destination = new URL("./v1/", window.location.href);
+      destination.search = window.location.search;
+      destination.hash = window.location.hash;
+      window.location.replace(destination);
+    </script>
+  </head>
+  <body>
+    <a href="./v1/">SUSA24 거리뷰를 엽니다.</a>
+  </body>
+</html>

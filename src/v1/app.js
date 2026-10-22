@@ -1,4 +1,6 @@
 let panorama;
+let isPreview = new URLSearchParams(window.location.search).get("preview") === "true";
+let viewportSize;
 let latestPov;
 let pendingPosition;
 let isLoading = true;
@@ -96,10 +98,19 @@ window.SUSA24Panorama = {
     panorama.setPov({ ...panorama.getPov(), pan: 0 });
     return true;
   },
+  setPreview(value) {
+    isPreview = value === true;
+    if (isReady) panorama.setOptions("logoControl", !isPreview);
+  },
   resize() {
     if (!isReady) return;
-    const element = document.getElementById("panorama");
-    panorama.setSize(new naver.maps.Size(element.clientWidth, element.clientHeight));
+    // setSize가 컨테이너에 기록한 고정 크기 대신 실제 viewport를 사용한다.
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    if (!(width > 0 && height > 0)) return;
+    if (viewportSize?.width === width && viewportSize?.height === height) return;
+    viewportSize = { width, height };
+    panorama.setSize(new naver.maps.Size(width, height));
   },
   setPosition(coordinate) {
     if (!panorama) {
@@ -136,6 +147,7 @@ window.initializePanorama = function initializePanorama() {
   }
 
   panorama = new naver.maps.Panorama(container, {
+    logoControl: !isPreview,
     position: new naver.maps.LatLng(
       initialCoordinate.latitude,
       initialCoordinate.longitude,
@@ -144,6 +156,7 @@ window.initializePanorama = function initializePanorama() {
 
   naver.maps.Event.addListener(panorama, "init", () => {
     isReady = true;
+    window.SUSA24Panorama.resize();
     hasLocation = true;
     notifyNative("ready");
     latestPov = panorama.getPov();

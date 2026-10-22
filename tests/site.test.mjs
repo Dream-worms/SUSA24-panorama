@@ -23,6 +23,7 @@ function createAppHarness(search = "") {
   const positions = [];
   const appliedPovs = [];
   const panoramas = [];
+  const messages = [];
   let currentPov = { fov: 80, pan: 25, tilt: 5 };
   const panoramaContainer = {};
   const status = { textContent: "" };
@@ -40,6 +41,8 @@ function createAppHarness(search = "") {
       this.options = options;
       panoramas.push(this);
     }
+
+    getLocation() { return {coord: {lat: () => 37.5665, lng: () => 126.978}, title: "도로", address: "주소"}; }
 
     getPov() {
       return currentPov;
@@ -69,6 +72,7 @@ function createAppHarness(search = "") {
     },
   };
   const window = {
+    webkit: {messageHandlers: {panorama: {postMessage: (message) => messages.push(message)}}},
     location: { search },
     naver,
   };
@@ -95,6 +99,7 @@ function createAppHarness(search = "") {
 
   return {
     appliedPovs,
+    messages,
     currentPov,
     listeners,
     panoramas,
@@ -126,6 +131,7 @@ test("initializes Panorama from lat and lng query parameters", () => {
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
 
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   const [panorama] = harness.panoramas;
   assert.equal(panorama.options.position.latitude, 37.5665);
@@ -136,6 +142,7 @@ test("requires an initial coordinate", () => {
   const harness = createAppHarness();
 
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   assert.equal(harness.panoramas.length, 0);
   assert.equal(harness.status.textContent, "올바른 좌표가 아닙니다.");
@@ -167,6 +174,7 @@ test("preserves query parameters and hash when redirecting to v1", () => {
 test("updates position through the runtime bridge and preserves the current POV", () => {
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   harness.window.SUSA24Panorama.setPosition({
     latitude: 35.1796,
@@ -186,6 +194,7 @@ test("preserves the latest POV changed while a position update is pending", () =
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
   const latestPov = { fov: 70, pan: 80, tilt: 10 };
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   harness.window.SUSA24Panorama.setPosition({
     latitude: 35.1796,
@@ -201,6 +210,7 @@ test("preserves the latest POV changed while a position update is pending", () =
 test("clears the loading status after a runtime position update succeeds", () => {
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   harness.window.SUSA24Panorama.setPosition({
     latitude: 35.1796,
@@ -216,6 +226,7 @@ test("clears the loading status after a runtime position update succeeds", () =>
 test("reports a generic load failure when Panorama returns an error", () => {
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   harness.listeners.get("pano_status")("ERROR");
 
@@ -237,6 +248,7 @@ test("rejects an incomplete initial coordinate", () => {
   const harness = createAppHarness("?lat=37.5665");
 
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   assert.equal(harness.panoramas.length, 0);
   assert.equal(harness.status.textContent, "올바른 좌표가 아닙니다.");
@@ -245,6 +257,7 @@ test("rejects an incomplete initial coordinate", () => {
 test("rejects an out-of-range runtime coordinate", () => {
   const harness = createAppHarness("?lat=37.5665&lng=126.978");
   harness.window.initializePanorama();
+  harness.listeners.get("init")?.();
 
   const result = harness.window.SUSA24Panorama.setPosition({
     latitude: 91,
@@ -256,12 +269,40 @@ test("rejects an out-of-range runtime coordinate", () => {
   assert.equal(harness.status.textContent, "올바른 좌표가 아닙니다.");
 });
 
-test("hides Panorama navigation arrows and their interaction area", () => {
+test("keeps SDK navigation available", () => {
   const css = readProjectFile("src/v1/styles.css");
+  assert.doesNotMatch(css, /arrow_container_|arrow_image/);
+});
 
-  assert.match(css, /\[class\^="arrow_container_"\]/);
-  assert.match(css, /\.arrow_image/);
-  assert.match(css, /pointer-events:\s*none/);
+test("latest position wins without overlapping SDK requests", () => {
+  const h = createAppHarness("?lat=37.5665&lng=126.978&requestId=initial");
+  h.window.initializePanorama();
+  h.listeners.get("init")();
+  h.window.SUSA24Panorama.setPosition({latitude: 35, longitude: 129, requestId: "first"});
+  h.window.SUSA24Panorama.setPosition({latitude: 36, longitude: 128, requestId: "second"});
+  h.messages.length = 0;
+  h.listeners.get("pano_changed")();
+  assert.equal(h.positions.length, 2);
+  assert.equal(h.messages.length, 0);
+  h.listeners.get("pano_changed")();
+  assert.equal(h.messages.at(-1).requestId, "second");
+  assert.equal(h.messages.at(-1).type, "location");
+});
+
+test("sends actual location and rejects pending POV events", () => {
+  const h = createAppHarness("?lat=37&lng=127&requestId=initial");
+  h.window.initializePanorama();
+  h.listeners.get("init")();
+  assert.equal(h.messages.at(-1).latitude, 37.5665);
+  h.window.SUSA24Panorama.setPosition({latitude: 35, longitude: 129, requestId: "new"});
+  h.messages.length = 0;
+  h.listeners.get("pov_changed")();
+  assert.equal(h.messages.length, 0);
+  h.listeners.get("pano_status")("ERROR");
+  assert.equal(h.messages.at(-1).type, "error");
+  assert.equal(h.messages.at(-1).requestId, "new");
+  h.listeners.get("pov_changed")();
+  assert.equal(h.messages.at(-1).type, "error");
 });
 
 test("build fails when NCP_MAPS_CLIENT_ID is missing", () => {

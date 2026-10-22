@@ -1,5 +1,39 @@
 let panorama;
 let latestPov;
+let pendingPosition;
+let isLoading = true;
+let isReady = false;
+let hasLocation = false;
+let requestId = new URLSearchParams(window.location.search).get("requestId") || "";
+
+function notifyNative(type, values = {}) {
+  window.webkit?.messageHandlers?.panorama?.postMessage({ type, requestId, ...values });
+}
+
+function publishLocation() {
+  if (!isReady || isLoading || pendingPosition || !hasLocation) return;
+  const location = panorama.getLocation();
+  const pov = panorama.getPov();
+  if (!location?.coord || !pov) return;
+  notifyNative("location", {
+    latitude: location.coord.lat(), longitude: location.coord.lng(),
+    pan: pov.pan, tilt: pov.tilt, fov: pov.fov,
+    title: location.title || "", address: location.address || "",
+  });
+}
+
+function startPendingPosition() {
+  if (!isReady || isLoading || !pendingPosition) return false;
+  const next = pendingPosition;
+  pendingPosition = null;
+  requestId = next.requestId;
+  isLoading = true;
+  hasLocation = false;
+  latestPov = panorama.getPov();
+  updateStatus("거리뷰를 불러오는 중입니다.");
+  panorama.setPosition(new naver.maps.LatLng(next.latitude, next.longitude));
+  return true;
+}
 
 function parseCoordinateValue(value) {
   if (typeof value === "number") {
@@ -53,9 +87,20 @@ function updateStatus(message) {
 
 window.handlePanoramaLoadError = function handlePanoramaLoadError() {
   updateStatus("거리뷰를 불러오지 못했습니다.");
+  notifyNative("error");
 };
 
 window.SUSA24Panorama = {
+  faceNorth() {
+    if (!isReady || isLoading) return false;
+    panorama.setPov({ ...panorama.getPov(), pan: 0 });
+    return true;
+  },
+  resize() {
+    if (!isReady) return;
+    const element = document.getElementById("panorama");
+    panorama.setSize(new naver.maps.Size(element.clientWidth, element.clientHeight));
+  },
   setPosition(coordinate) {
     if (!panorama) {
       updateStatus("거리뷰가 준비되지 않았습니다.");
@@ -69,14 +114,8 @@ window.SUSA24Panorama = {
       return false;
     }
 
-    latestPov = panorama.getPov();
-    panorama.setPosition(
-      new naver.maps.LatLng(
-        parsedCoordinate.latitude,
-        parsedCoordinate.longitude,
-      ),
-    );
-    updateStatus("거리뷰를 불러오는 중입니다.");
+    pendingPosition = { ...parsedCoordinate, requestId: coordinate.requestId || requestId };
+    startPendingPosition();
     return true;
   },
 };
@@ -104,8 +143,15 @@ window.initializePanorama = function initializePanorama() {
   });
 
   naver.maps.Event.addListener(panorama, "init", () => {
+    isReady = true;
+    hasLocation = true;
+    notifyNative("ready");
     latestPov = panorama.getPov();
-    updateStatus("");
+    isLoading = false;
+    if (!startPendingPosition()) {
+      updateStatus("");
+      publishLocation();
+    }
   });
 
   naver.maps.Event.addListener(panorama, "pano_status", (status) => {
@@ -114,16 +160,25 @@ window.initializePanorama = function initializePanorama() {
       return;
     }
 
-    updateStatus("거리뷰를 불러오지 못했습니다.");
+    isLoading = false;
+    hasLocation = false;
+    if (!startPendingPosition()) {
+      updateStatus("거리뷰를 불러오지 못했습니다.");
+      notifyNative("error");
+    }
   });
 
   naver.maps.Event.addListener(panorama, "pano_changed", () => {
-    if (latestPov) {
-      panorama.setPov(latestPov);
-    }
+    if (latestPov) panorama.setPov(latestPov);
+    isLoading = false;
+    hasLocation = true;
+    if (!startPendingPosition()) publishLocation();
   });
 
   naver.maps.Event.addListener(panorama, "pov_changed", () => {
     latestPov = panorama.getPov();
+    publishLocation();
   });
 };
+
+window.addEventListener?.("resize", () => window.SUSA24Panorama.resize());

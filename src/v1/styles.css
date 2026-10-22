@@ -13,12 +13,6 @@ body {
   height: 100%;
 }
 
-#panorama [class^="arrow_container_"],
-#panorama .arrow_image {
-  display: none !important;
-  pointer-events: none !important;
-}
-
 #status {
   position: fixed;
   inset: auto 16px 16px;

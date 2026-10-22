@@ -24,6 +24,8 @@ function createAppHarness(search = "") {
   const appliedPovs = [];
   const panoramas = [];
   const messages = [];
+  const sizes = [];
+  const windowListeners = new Map();
   let currentPov = { fov: 80, pan: 25, tilt: 5 };
   const panoramaContainer = {};
   const status = { textContent: "" };
@@ -40,6 +42,14 @@ function createAppHarness(search = "") {
       this.container = container;
       this.options = options;
       panoramas.push(this);
+    }
+
+    setOptions(key, value) { this.options[key] = value; }
+
+    setSize(size) {
+      sizes.push(size);
+      panoramaContainer.clientWidth = size.width;
+      panoramaContainer.clientHeight = size.height;
     }
 
     getLocation() { return {coord: {lat: () => 37.5665, lng: () => 126.978}, title: "도로", address: "주소"}; }
@@ -64,6 +74,7 @@ function createAppHarness(search = "") {
           listeners.set(eventName, listener);
         },
       },
+      Size: class { constructor(width, height) { this.width = width; this.height = height; } },
       LatLng,
       Panorama,
       PanoramaStatus: {
@@ -72,6 +83,8 @@ function createAppHarness(search = "") {
     },
   };
   const window = {
+    innerWidth: 80, innerHeight: 60,
+    addEventListener: (name, listener) => windowListeners.set(name, listener),
     webkit: {messageHandlers: {panorama: {postMessage: (message) => messages.push(message)}}},
     location: { search },
     naver,
@@ -99,6 +112,8 @@ function createAppHarness(search = "") {
 
   return {
     appliedPovs,
+    sizes,
+    windowListeners,
     messages,
     currentPov,
     listeners,
@@ -347,4 +362,31 @@ test("build injects the Client ID and copies static assets", () => {
   assert.doesNotMatch(html, /__NCP_MAPS_CLIENT_ID__/);
   assert.match(css, /#panorama/);
   assert.match(javascript, /new naver\.maps\.Panorama/);
+});
+
+test("preview expands and contracts using viewport instead of the SDK fixed container", () => {
+  const h = createAppHarness("?lat=37&lng=127&preview=true");
+  h.window.initializePanorama();
+  h.listeners.get("init")();
+  for (const [width, height] of [[343, 330], [375, 812], [343, 330], [80, 60]]) {
+    h.window.innerWidth = width;
+    h.window.innerHeight = height;
+    h.windowListeners.get("resize")();
+    assert.equal(h.sizes.at(-1).width, width);
+    assert.equal(h.sizes.at(-1).height, height);
+  }
+  const count = h.sizes.length;
+  h.windowListeners.get("resize")();
+  assert.equal(h.sizes.length, count);
+  assert.equal(h.panoramas.length, 1);
+  assert.equal(h.positions.length, 0);
+});
+
+test("hides preview attribution using the SDK option and restores it on expansion", () => {
+  const h = createAppHarness("?lat=37&lng=127&preview=true");
+  h.window.initializePanorama();
+  h.listeners.get("init")();
+  assert.equal(h.panoramas[0].options.logoControl, false);
+  h.window.SUSA24Panorama.setPreview(false);
+  assert.equal(h.panoramas[0].options.logoControl, true);
 });
